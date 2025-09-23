@@ -6,7 +6,7 @@ import AuthForm from "@/components/AuthForm"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
 import type { User } from "@supabase/supabase-js"
-import { Sun, Moon, Clock} from "lucide-react"
+import { Sun, Moon, Clock, Check, Trash2, Edit2} from "lucide-react"
 
 // 🔹 Tipo para las sesiones
 interface WorkSession {
@@ -67,6 +67,9 @@ export default function TestPage() {
     const getSession = async () => {
       const { data } = await supabase.auth.getUser()
       setUser(data.user ?? null)
+      if (data.user) {
+        fetchWorkSessions() // 👉 Disparar Fetch al montar 
+      }
     }
     getSession()
 
@@ -185,90 +188,173 @@ export default function TestPage() {
     })
   }
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    window.location.href = "/"
+  }
+
+  const handleUpdate = async (id: string, newCheckIn: string, newCheckOut: string) =>{
+    const totalHours = (new Date(newCheckOut).getTime() - new Date(newCheckIn).getTime() / (1000 * 60 * 60))
+    const { error } = await supabase
+      .from("work_sessions")
+      .update({ check_in: newCheckIn, check_out: newCheckOut, total_hours: totalHours })
+      .eq("id", id)
+    if (error) console.error("Error updating session:", error)
+    else fetchWorkSessions()
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this session?")) return
+    const { error } = await supabase
+      .from("work_sessions")
+      .delete()
+      .eq("id", id)
+    if (error) console.error("Error deleting session:", error)
+    else fetchWorkSessions()
+  }
+
   return (
     <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold">Work Sessions</h1>
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center space-x-2">
+          <h1 className="text-2xl font-bold">Work Dashboard</h1>
           <p className="text-sm text-gray-500">Active User: {user?.email}</p>
         </div>
-
-        <ThemeToggle />
+        <div className="flex items-center space-x-2">
+          <ThemeToggle />
+          <button
+            onClick={async () => { await supabase.auth.signOut(); window.location.href = "/" }}
+            className="bg-red-500 text-white px-3 py-1 rounded"
+          >
+            Logout
+          </button>
+        </div>
       </div>
+      
 
       {!user ? (
         <AuthForm />
       ) : (
         <>
-        {/* 🔹 Control de sesion  */}
-          <div className="space-y-4 p-4 border rounded flex flex-col items-start gap-2">
-            {!activeSession ? (
-              <button
-              onClick={handleStart}
-              className="bg-green-500 text-white px-5 py-2 rounded-lg hover:bg-green-600 flex items-center gap-2"
+        {/* Botones Start / End */}
+      <div className="flex items-center gap-4 mb-4">
+        {!activeSession ? (
+          <button
+            onClick={handleStart}
+            className="bg-green-500 text-white px-5 py-2 rounded-lg hover:bg-green-600 flex items-center gap-2"
+          >
+            <Clock size={18} /> Start Session
+          </button>
+        ) : (
+          <div className="flex items-center gap-4">
+            <div className="text-lg font-mono flex items-center gap-1">
+              <Clock /> {formatTime(elapsedTime)}
+            </div>
+            <button
+              onClick={handleEnd}
+              className="bg-red-500 text-white px-5 py-2 rounded-lg hover:bg-red-600 flex items-center gap-2"
             >
-              <Clock size={18} /> Start Session
+              End Session
             </button>
-            ) : (
-              <>
-                <div className="text-lg font-mono">⏱ {formatTime(elapsedTime)}</div>
-                <button
-                  onClick={handleEnd}
-                  className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-                >
-                  End Session
-                </button>
-              </>
-            )}
+          </div>
+        )}
+      </div>
+
+           {/* Sección de resumen */}
+           <div className="mb-8 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <h2 className="text-xl font-bold mb-4">Resumen de Horas</h2>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 dark:text-gray-300">Horas Totales</p>
+                <p className="text-2xl font-bold">
+                  {workSessions.reduce((total, s) => total + (s.total_hours || 0), 0).toFixed(2)} horas
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600 dark:text-gray-300">Sesiones Registradas</p>
+                <p className="text-2xl font-bold text-right">{workSessions.length}</p>
+              </div>
+            </div>
           </div>
 
-          {/* 🔹 Listado de sesiones anteriores */}
-          <div className="p-4 border rounded space-y-2">
-            <div className="flex items-center gap-2"></div>
-            <h2 className="text-lg font-bold">Previous Sessions</h2>
-            {workSessions.length === 0 ? (
-              <p>No sessions found.</p>
-            ) : (
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 dark:bg-gray-800">
-                    <th className="border px-2 py-1 text-left">User</th>
-                    <th className="border px-2 py-1 text-left">Check-in → Check-out</th>
-                    <th className="border px-2 py-1 text-left">Total Hours</th>
+          {/* Lista de sesiones con CRUD */}
+          <div className="border rounded-lg overflow-hidden">
+            <h2 className="text-xl font-bold p-4 bg-gray-50 dark:bg-gray-800 border-b">Historial de Sesiones</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-800">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Estado
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Check-in
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Check-out
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Duración
+                    </th>
                   </tr>
                 </thead>
-                <tbody>
-                  {workSessions.map((s) => (
-                    <tr
-                      key={s.id}
-                      className={s.check_out ? "" : "bg-yellow-100 dark:bg-yellow-800 font-semibold"}
-                    >
-                      <td className="border px-2 py-1">{user.email}</td>
-                      <td className="border px-2 py-1">
-                        {formatDateTime(s.check_in)} → {s.check_out ? formatDateTime(s.check_out) : "⏳ ongoing"}
-                      </td>
-                      <td className="border px-2 py-1">
-                        {s.total_hours ? s.total_hours.toFixed(2) : "⏳ calculating"}
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                  {workSessions.map((session) => {
+                    const isActive = !session.check_out;
+                    return (
+                      <tr key={session.id} className={isActive ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}>                        
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {isActive ? (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/50 dark:text-yellow-200">
+                              En curso
+                            </span>
+                          ) : (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200">
+                              Completada
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {formatDateTime(session.check_in)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {session.check_out ? formatDateTime(session.check_out) : 'En progreso'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
+                          {session.total_hours ? `${session.total_hours.toFixed(2)}h` : 'Calculando...'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap flex gap-2">
+                      <button
+                        onClick={() => handleDelete(session.id.toString())}
+                        className="text-red-500 hover:text-red-700 flex items-center gap-1"
+                      >
+                        <Trash2 size={16} /> Delete
+                      </button>
+                      {!isActive && (
+                        <button
+                          onClick={() => {
+                            const newCheckIn = prompt("Nueva hora de check-in:", session.check_in)
+                            const newCheckOut = prompt("Nueva hora de check-out:", session.check_out || '')
+                            if (newCheckIn && newCheckOut) handleUpdate(session.id.toString(), newCheckIn, newCheckOut)
+                          }}
+                          className="text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                        >
+                          <Edit2 size={16} /> Edit
+                        </button>
+                      )}
+                    </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+            </div>
+            {workSessions.length === 0 && (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                No hay sesiones registradas
+              </div>
             )}
           </div>
-
-          {/* 🔹 Logout */}
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut()
-              setUser(null)
-              stopTimer()
-              setWorkSessions([])
-            }}
-            className="bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-600"
-          >
-            Logout
-          </button>
         </>
       )}
     </div>
