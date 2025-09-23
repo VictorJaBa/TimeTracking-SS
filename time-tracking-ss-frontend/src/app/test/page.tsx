@@ -6,7 +6,7 @@ import AuthForm from "@/components/AuthForm"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
 import type { User } from "@supabase/supabase-js"
-import { Sun, Moon, Clock, Check, Trash2, Edit2} from "lucide-react"
+import { Sun, Moon, Clock, Check, Trash2, Edit2 } from "lucide-react"
 
 // 🔹 Tipo para las sesiones
 interface WorkSession {
@@ -29,7 +29,7 @@ export function ThemeToggle() {
       onClick={() => setTheme(theme === "light" ? "dark" : "light")}
       className="flex items-center gap-2"
     >
-      {isLight ? <Moon size={18}/> : <Sun size={18}/>}
+      {isLight ? <Moon size={18} /> : <Sun size={18} />}
     </Button>
   )
 }
@@ -52,9 +52,9 @@ export default function TestPage() {
       .select("*")
       .eq("user_id", user.id) // 👈 traer solo del usuario logueado
       .order("check_in", { ascending: true })
-      // .limit(5) // 👈 limitar testing a 5
+    // .limit(5) // 👈 limitar testing a 5
     if (error) console.error("Error fetching work_sessions:", error)
-    else{
+    else {
       setWorkSessions((data || []) as WorkSession[])
       // 👉 Si hay sesiones sin check_out, la tomamos como activa
       const ongoing = data?.find(s => !s.check_out)
@@ -104,11 +104,11 @@ export default function TestPage() {
     }
 
     //Calculamos total_hours
-    const totalHours = 
+    const totalHours =
       (new Date(endTime).getTime() - new Date(startTime).getTime()) /
       (1000 * 60 * 60)
 
-      //Insert en Supabase
+    //Insert en Supabase
     const { error } = await supabase
       .from("work_sessions")
       .insert([{ check_in: startTime, check_out: endTime, user_id: currentUser.id, total_hours: totalHours }])
@@ -127,7 +127,7 @@ export default function TestPage() {
   const startTimer = (session: WorkSession) => {
     setActiveSession(session)
     const start = new Date(session.check_in).getTime()
-    setElapsedTime(Math.floor((Date.now() - start) / 1000 ))
+    setElapsedTime(Math.floor((Date.now() - start) / 1000))
     timeRef.current = setInterval(() => {
       setElapsedTime((Math.floor((Date.now() - start) / 1000)))
     }, 1000)
@@ -135,7 +135,7 @@ export default function TestPage() {
 
   // Detener el temporizador
   const stopTimer = () => {
-    if(timeRef.current) clearInterval(timeRef.current)
+    if (timeRef.current) clearInterval(timeRef.current)
     timeRef.current = null
     setActiveSession(null)
     setElapsedTime(0)
@@ -146,16 +146,16 @@ export default function TestPage() {
   const handleStart = async () => {
     if (!user) return
     const { data, error } = await supabase
-    .from("work_sessions")
-    .insert([{ check_in: new Date().toISOString(), user_id: user.id }])
-    .select()
-  if (error) console.error("Error starting session:", error)
-  else if (data && data[0]) startTimer(data[0])
+      .from("work_sessions")
+      .insert([{ check_in: new Date().toISOString(), user_id: user.id }])
+      .select()
+    if (error) console.error("Error starting session:", error)
+    else if (data && data[0]) startTimer(data[0])
   }
 
   // End Session
   const handleEnd = async () => {
-    if(!user || !activeSession) return
+    if (!user || !activeSession) return
     const checkOut = new Date().toISOString()
     const totalHours = (new Date(checkOut).getTime() - new Date(activeSession.check_in).getTime()) / (1000 * 60 * 60)
     const { error } = await supabase
@@ -164,7 +164,7 @@ export default function TestPage() {
       .eq("id", activeSession.id)
     if (error) console.error("Error ending session:", error)
     stopTimer()
-  fetchWorkSessions()
+    fetchWorkSessions()
   }
 
   // Formatear tiempo en HH:MM:SS
@@ -193,7 +193,7 @@ export default function TestPage() {
     window.location.href = "/"
   }
 
-  const handleUpdate = async (id: string, newCheckIn: string, newCheckOut: string) =>{
+  const handleUpdate = async (id: string, newCheckIn: string, newCheckOut: string) => {
     const totalHours = (new Date(newCheckOut).getTime() - new Date(newCheckIn).getTime() / (1000 * 60 * 60))
     const { error } = await supabase
       .from("work_sessions")
@@ -230,38 +230,38 @@ export default function TestPage() {
           </button>
         </div>
       </div>
-      
+
 
       {!user ? (
         <AuthForm />
       ) : (
         <>
-        {/* Botones Start / End */}
-      <div className="flex items-center gap-4 mb-4">
-        {!activeSession ? (
-          <button
-            onClick={handleStart}
-            className="bg-green-500 text-white px-5 py-2 rounded-lg hover:bg-green-600 flex items-center gap-2"
-          >
-            <Clock size={18} /> Start Session
-          </button>
-        ) : (
-          <div className="flex items-center gap-4">
-            <div className="text-lg font-mono flex items-center gap-1">
-              <Clock /> {formatTime(elapsedTime)}
-            </div>
-            <button
-              onClick={handleEnd}
-              className="bg-red-500 text-white px-5 py-2 rounded-lg hover:bg-red-600 flex items-center gap-2"
-            >
-              End Session
-            </button>
+          {/* Botones Start / End */}
+          <div className="flex items-center gap-4 mb-4">
+            {!activeSession ? (
+              <button
+                onClick={handleStart}
+                className="bg-green-500 text-white px-5 py-2 rounded-lg hover:bg-green-600 flex items-center gap-2"
+              >
+                <Clock size={18} /> Start Session
+              </button>
+            ) : (
+              <div className="flex items-center gap-4">
+                <div className="text-lg font-mono flex items-center gap-1">
+                  <Clock /> {formatTime(elapsedTime)}
+                </div>
+                <button
+                  onClick={handleEnd}
+                  className="bg-red-500 text-white px-5 py-2 rounded-lg hover:bg-red-600 flex items-center gap-2"
+                >
+                  End Session
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-           {/* Sección de resumen */}
-           <div className="mb-8 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          {/* Sección de resumen */}
+          <div className="mb-8 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <h2 className="text-xl font-bold mb-4">Resumen de Horas</h2>
             <div className="flex items-center justify-between">
               <div>
@@ -296,13 +296,16 @@ export default function TestPage() {
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Duración
                     </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Acciones
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                   {workSessions.map((session) => {
                     const isActive = !session.check_out;
                     return (
-                      <tr key={session.id} className={isActive ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}>                        
+                      <tr key={session.id} className={isActive ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {isActive ? (
                             <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/50 dark:text-yellow-200">
@@ -324,25 +327,25 @@ export default function TestPage() {
                           {session.total_hours ? `${session.total_hours.toFixed(2)}h` : 'Calculando...'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap flex gap-2">
-                      <button
-                        onClick={() => handleDelete(session.id.toString())}
-                        className="text-red-500 hover:text-red-700 flex items-center gap-1"
-                      >
-                        <Trash2 size={16} /> Delete
-                      </button>
-                      {!isActive && (
-                        <button
-                          onClick={() => {
-                            const newCheckIn = prompt("Nueva hora de check-in:", session.check_in)
-                            const newCheckOut = prompt("Nueva hora de check-out:", session.check_out || '')
-                            if (newCheckIn && newCheckOut) handleUpdate(session.id.toString(), newCheckIn, newCheckOut)
-                          }}
-                          className="text-blue-500 hover:text-blue-700 flex items-center gap-1"
-                        >
-                          <Edit2 size={16} /> Edit
-                        </button>
-                      )}
-                    </td>
+                          <button
+                            onClick={() => handleDelete(session.id.toString())}
+                            className="text-red-500 hover:text-red-700 flex items-center gap-1"
+                          >
+                            <Trash2 size={16} /> Delete
+                          </button>
+                          {!isActive && (
+                            <button
+                              onClick={() => {
+                                const newCheckIn = prompt("Nueva hora de check-in:", session.check_in)
+                                const newCheckOut = prompt("Nueva hora de check-out:", session.check_out || '')
+                                if (newCheckIn && newCheckOut) handleUpdate(session.id.toString(), newCheckIn, newCheckOut)
+                              }}
+                              className="text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                            >
+                              <Edit2 size={16} /> Edit
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -359,4 +362,4 @@ export default function TestPage() {
       )}
     </div>
   )
-}
+}1
