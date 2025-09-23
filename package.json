@@ -1,0 +1,20 @@
+{
+  "name": "timetracking-ss",
+  "version": "1.0.0",
+  "description": "Consists of developing a Web App for hours counter for a personal service, with cloud storage through Supabase.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VictorJaBa/TimeTracking-SS.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/VictorJaBa/TimeTracking-SS/issues"
+  },
+  "homepage": "https://github.com/VictorJaBa/TimeTracking-SS#readme"
+}
