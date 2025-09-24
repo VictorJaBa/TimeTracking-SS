@@ -1,14 +1,13 @@
 "use client"
-
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import AuthForm from "@/components/AuthForm"
-import { Clock } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { User } from "@supabase/supabase-js"
+
+import type { User } from "@supabase/supabase-js"
+import { Clock, Trash2, Edit2 } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 
-
+// 🔹 Tipo para las sesiones
 interface WorkSession {
   id: number
   check_in: string
@@ -17,12 +16,15 @@ interface WorkSession {
   user_id: string
 }
 
-export default function DashboardPage() {
-  const [user, setUser] = useState<User | null>(null) // 👈 Guarda el usuario actual
+export default function TestPage() {
   const [workSessions, setWorkSessions] = useState<WorkSession[]>([])
   const [activeSession, setActiveSession] = useState<WorkSession | null>(null)
   const [elapsedTime, setElapsedTime] = useState<number>(0)
   const timeRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [startTime, setStartTime] = useState("")
+  const [endTime, setEndTime] = useState("")
+  const [message, setMessage] = useState("")
+  const [user, setUser] = useState<User | null>(null) // 👈 Guarda el usuario actual
 
   // 🔹 Fetch work_sessions
   const fetchWorkSessions = useCallback(async () => {
@@ -66,47 +68,88 @@ export default function DashboardPage() {
     }
   }, [fetchWorkSessions])
 
+  // 🔹 Guardar nueva sesión
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (new Date(endTime) <= new Date(startTime)) {
+      setMessage("⚠️ End time must be later than start time.")
+      return
+    }
+
+    // Obtenemos el usuario actual desde Supabase
+    const currentUser = (await supabase.auth.getUser()).data.user
+
+    if (!currentUser) {
+      setMessage("⚠️ You must be logged in to save a work session.")
+      return
+    }
+
+    //Calculamos total_hours
+    const totalHours =
+      (new Date(endTime).getTime() - new Date(startTime).getTime()) /
+      (1000 * 60 * 60)
+
+    //Insert en Supabase
+    const { error } = await supabase
+      .from("work_sessions")
+      .insert([{ check_in: startTime, check_out: endTime, user_id: currentUser.id, total_hours: totalHours }])
+
+    if (error) {
+      setMessage(`❌ Error: ${error.message}`)
+    } else {
+      setMessage("✅ Work session saved successfully!")
+      setStartTime("")
+      setEndTime("")
+      fetchWorkSessions()
+    }
+  }
+
+  // Iniciar temporizador
   const startTimer = (session: WorkSession) => {
     setActiveSession(session)
     const start = new Date(session.check_in).getTime()
     setElapsedTime(Math.floor((Date.now() - start) / 1000))
     timeRef.current = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - start) / 1000))
+      setElapsedTime((Math.floor((Date.now() - start) / 1000)))
     }, 1000)
   }
 
+  // Detener el temporizador
   const stopTimer = () => {
     if (timeRef.current) clearInterval(timeRef.current)
     timeRef.current = null
     setActiveSession(null)
     setElapsedTime(0)
+    fetchWorkSessions()
   }
 
+  // Start Session
   const handleStart = async () => {
     if (!user) return
     const { data, error } = await supabase
       .from("work_sessions")
       .insert([{ check_in: new Date().toISOString(), user_id: user.id }])
       .select()
-    if (error) console.error(error)
+    if (error) console.error("Error starting session:", error)
     else if (data && data[0]) startTimer(data[0])
   }
 
+  // End Session
   const handleEnd = async () => {
     if (!user || !activeSession) return
     const checkOut = new Date().toISOString()
-    const totalHours =
-      (new Date(checkOut).getTime() - new Date(activeSession.check_in).getTime()) /
-      (1000 * 60 * 60)
+    const totalHours = (new Date(checkOut).getTime() - new Date(activeSession.check_in).getTime()) / (1000 * 60 * 60)
     const { error } = await supabase
       .from("work_sessions")
       .update({ check_out: checkOut, total_hours: totalHours })
       .eq("id", activeSession.id)
-    if (error) console.error(error)
+    if (error) console.error("Error ending session:", error)
     stopTimer()
     fetchWorkSessions()
   }
 
+  // Formatear tiempo en HH:MM:SS
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, "0")
     const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, "0")
@@ -114,6 +157,7 @@ export default function DashboardPage() {
     return `${h}:${m}:${s}`
   }
 
+  // Formater fecha en zona local
   const formatDateTime = (iso: string) => {
     const date = new Date(iso)
     return date.toLocaleString(undefined, {
@@ -122,7 +166,7 @@ export default function DashboardPage() {
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-      hour12: true,
+      hour12: true
     })
   }
 
@@ -131,25 +175,50 @@ export default function DashboardPage() {
     window.location.href = "/"
   }
 
+  const handleUpdate = async (id: string, newCheckIn: string, newCheckOut: string) => {
+    const totalHours = (new Date(newCheckOut).getTime() - new Date(newCheckIn).getTime() / (1000 * 60 * 60))
+    const { error } = await supabase
+      .from("work_sessions")
+      .update({ check_in: newCheckIn, check_out: newCheckOut, total_hours: totalHours })
+      .eq("id", id)
+    if (error) console.error("Error updating session:", error)
+    else fetchWorkSessions()
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this session?")) return
+    const { error } = await supabase
+      .from("work_sessions")
+      .delete()
+      .eq("id", id)
+    if (error) console.error("Error deleting session:", error)
+    else fetchWorkSessions()
+  }
+
   return (
     <div className="p-6 space-y-6">
-      {/* Header/Navbar */}
-      <header className="flex justify-between items-center p-4 border-b">
-        <h1 className="text-2xl font-bold">Work Dashboard</h1>
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center space-x-2">
+          <h1 className="text-2xl font-bold">Work Dashboard</h1>
+          <p className="text-sm text-gray-500">Active User: {user?.email}</p>
+        </div>
         <div className="flex items-center space-x-2">
           <ThemeToggle />
-          <Button variant="outline" onClick={handleLogout}>
+          <button
+            onClick={handleLogout}
+            className="bg-red-500 text-white px-3 py-1 rounded"
+          >
             Logout
-          </Button>
+          </button>
         </div>
-      </header>
+      </div>
 
       {!user ? (
         <AuthForm />
       ) : (
         <>
-          {/* Control de sesión */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-4">
+          {/* Botones Start / End */}
+          <div className="flex items-center gap-4 mb-4">
             {!activeSession ? (
               <button
                 onClick={handleStart}
@@ -189,7 +258,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Lista de sesiones */}
+          {/* Lista de sesiones con CRUD */}
           <div className="border rounded-lg overflow-hidden">
             <h2 className="text-xl font-bold p-4 bg-gray-50 dark:bg-gray-800 border-b">Historial de Sesiones</h2>
             <div className="overflow-x-auto">
@@ -208,13 +277,16 @@ export default function DashboardPage() {
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Duración
                     </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Acciones
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                   {workSessions.map((session) => {
                     const isActive = !session.check_out;
                     return (
-                      <tr key={session.id} className={isActive ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}>                        
+                      <tr key={session.id} className={isActive ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {isActive ? (
                             <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-800/50 dark:text-yellow-200">
@@ -234,6 +306,26 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
                           {session.total_hours ? `${session.total_hours.toFixed(2)}h` : 'Calculando...'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap flex gap-2">
+                          <button
+                            onClick={() => handleDelete(session.id.toString())}
+                            className="text-red-500 hover:text-red-700 flex items-center gap-1"
+                          >
+                            <Trash2 size={16} /> Delete
+                          </button>
+                          {!isActive && (
+                            <button
+                              onClick={() => {
+                                const newCheckIn = prompt("Nueva hora de check-in:", session.check_in)
+                                const newCheckOut = prompt("Nueva hora de check-out:", session.check_out || '')
+                                if (newCheckIn && newCheckOut) handleUpdate(session.id.toString(), newCheckIn, newCheckOut)
+                              }}
+                              className="text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                            >
+                              <Edit2 size={16} /> Edit
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
