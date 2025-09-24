@@ -307,6 +307,52 @@ export default function TestPage() {
     else fetchWorkSessions()
   }
 
+  // Agregar sesión manual con validaciones
+  const handleAddManual = async () => {
+    if (!user) {
+      setMessage("⚠️ You must be logged in to add a manual session.")
+      return
+    }
+
+    const start = parseDateInput(manualCheckIn)
+    const end = parseDateInput(manualCheckOut)
+    const startMs = start.getTime()
+    const endMs = end.getTime()
+
+    if (isNaN(startMs) || isNaN(endMs)) {
+      setMessage("⚠️ Invalid dates. Use a valid format (e.g. 2025-09-23T18:30 or 2025-09-23 18:30).")
+      return
+    }
+    if (endMs <= startMs) {
+      setMessage("⚠️ The checkout must be after the checkin.")
+      return
+    }
+
+    const totalHours = (endMs - startMs) / (1000 * 60 * 60)
+
+    const { error } = await supabase
+      .from("work_sessions")
+      .insert([
+        {
+          check_in: start.toISOString(),
+          check_out: end.toISOString(),
+          total_hours: totalHours,
+          user_id: user.id,
+        },
+      ])
+
+    if (error) {
+      console.error("Error adding manual session:", error)
+      setMessage(`❌ Error: ${error.message}`)
+      return
+    }
+
+    setMessage("✅ Manual session saved successfully!")
+    setManualCheckIn("")
+    setManualCheckOut("")
+    fetchWorkSessions()
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center mb-4">
