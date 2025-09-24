@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabaseClient"
 import AuthForm from "@/components/AuthForm"
 
 import type { User } from "@supabase/supabase-js"
-import { Clock, Trash2, Edit2 } from "lucide-react"
+import { Clock, Trash2, Edit2, Check } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 
 // 🔹 Tipo para las sesiones
@@ -16,6 +16,50 @@ interface WorkSession {
   user_id: string
 }
 
+// Normaliza entradas de fecha comunes a un Date válido
+function parseDateInput(input: string): Date {
+  const s = (input || "").trim()
+  if (!s) return new Date(NaN)
+  // Reemplazar espacio por 'T' si viene en formato "YYYY-MM-DD HH:mm[:ss]"
+  const candidate = s.includes("T") ? s : s.replace(" ", "T")
+  const d = new Date(candidate)
+  if (!isNaN(d.getTime())) return d
+  // Fallback: intentar agregar ":00" para segundos si faltan
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(candidate)) {
+    const d2 = new Date(candidate + ":00")
+    if (!isNaN(d2.getTime())) return d2
+  }
+
+  return new Date(NaN)
+}
+
+// Convierte ISO a valor para input datetime-local (YYYY-MM-DDTHH:mm)
+function toLocalInputValue(iso: string | null): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const yyyy = d.getFullYear()
+  const mm = pad(d.getMonth() + 1)
+  const dd = pad(d.getDate())
+  const hh = pad(d.getHours())
+  const mi = pad(d.getMinutes())
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
+}
+
+// Horas de una sesión (usa total_hours si existe; si no, calcula por fechas)
+function computeSessionHours(s: WorkSession): number {
+  if (s.total_hours != null) return s.total_hours
+  if (s.check_out) {
+    const start = new Date(s.check_in).getTime()
+    const end = new Date(s.check_out).getTime()
+    if (!isNaN(start) && !isNaN(end) && end >= start) {
+      return (end - start) / (1000 * 60 * 60)
+    }
+  }
+  return 0
+}
+
 export default function TestPage() {
   const [workSessions, setWorkSessions] = useState<WorkSession[]>([])
   const [activeSession, setActiveSession] = useState<WorkSession | null>(null)
@@ -25,6 +69,49 @@ export default function TestPage() {
   const [endTime, setEndTime] = useState("")
   const [message, setMessage] = useState("")
   const [user, setUser] = useState<User | null>(null) // 👈 Guarda el usuario actual
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editCheckIn, setEditCheckIn] = useState<string>("")
+  const [editCheckOut, setEditCheckOut] = useState<string>("")
+  const [savingId, setSavingId] = useState<number | null>(null)
+  const [manualCheckIn, setManualCheckIn] = useState<string>("")
+  const [manualCheckOut, setManualCheckOut] = useState<string>("")
+
+  // Inline edit handlers (must live inside component to access state setters)
+  const handleEditStart = (s: WorkSession) => {
+    setEditingId(s.id)
+    setEditCheckIn(toLocalInputValue(s.check_in))
+    setEditCheckOut(toLocalInputValue(s.check_out))
+  }
+
+  const handleEditCancel = () => {
+    setEditingId(null)
+    setEditCheckIn("")
+    setEditCheckOut("")
+  }
+
+  const handleEditSave = (id: number) => {
+    // Los inputs datetime-local retornan en hora local sin zona; parseDateInput los acepta
+    // Optimistic UI: actualizamos inmediatamente la fila mientras guardamos
+    const start = parseDateInput(editCheckIn)
+    const end = parseDateInput(editCheckOut)
+    const startMs = start.getTime()
+    const endMs = end.getTime()
+    if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
+      setMessage("⚠️ Invalid dates. Please review.")
+      return
+    }
+    const optimisticHours = (endMs - startMs) / (1000 * 60 * 60)
+    setWorkSessions(prev => prev.map(s => s.id === id ? ({
+      ...s,
+      check_in: start.toISOString(),
+      check_out: end.toISOString(),
+      total_hours: optimisticHours,
+    }) : s))
+    setSavingId(id)
+    setEditingId(null)
+    handleUpdate(id.toString(), editCheckIn, editCheckOut)
+      .finally(() => setSavingId(null))
+  }
 
   // 🔹 Fetch work_sessions
   const fetchWorkSessions = useCallback(async () => {
@@ -37,6 +124,8 @@ export default function TestPage() {
     // .limit(5) // 👈 limitar testing a 5
     if (error) console.error("Error fetching work_sessions:", error)
     else {
+      // Debug: inspeccionar tipos devueltos por Supabase
+      console.debug("work_sessions fetched:", data)
       setWorkSessions((data || []) as WorkSession[])
       // 👉 Si hay sesiones sin check_out, la tomamos como activa
       const ongoing = data?.find(s => !s.check_out)
@@ -176,13 +265,36 @@ export default function TestPage() {
   }
 
   const handleUpdate = async (id: string, newCheckIn: string, newCheckOut: string) => {
-    const totalHours = (new Date(newCheckOut).getTime() - new Date(newCheckIn).getTime()) / (1000 * 60 * 60)
+    const start = parseDateInput(newCheckIn)
+    const end = parseDateInput(newCheckOut)
+    const startMs = start.getTime()
+    const endMs = end.getTime()
+
+    // Validaciones básicas para evitar NaN en la BD
+    if (isNaN(startMs) || isNaN(endMs)) {
+      setMessage("⚠️ Invalid dates. Use a valid format (e.g. 2025-09-23T18:30:00 or 2025-09-23 18:30:00).")
+      return
+    }
+    if (endMs <= startMs) {
+      setMessage("⚠️ The checkout must be after the checkin.")
+      return
+    }
+
+    const totalHours = (endMs - startMs) / (1000 * 60 * 60)
     const { error } = await supabase
       .from("work_sessions")
-      .update({ check_in: newCheckIn, check_out: newCheckOut, total_hours: totalHours })
+      .update({ check_in: start.toISOString(), check_out: end.toISOString(), total_hours: totalHours })
       .eq("id", id)
-    if (error) console.error("Error updating session:", error)
-    else fetchWorkSessions()
+    if (error) {
+      console.error("Error updating session:", error)
+      setMessage(`❌ Error updating session: ${error.message}`)
+    } else {
+      setMessage("✅ Session updated successfully!")
+      fetchWorkSessions()
+      setEditingId(null)
+      setEditCheckIn("")
+      setEditCheckOut("")
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -193,6 +305,52 @@ export default function TestPage() {
       .eq("id", id)
     if (error) console.error("Error deleting session:", error)
     else fetchWorkSessions()
+  }
+
+  // Agregar sesión manual con validaciones
+  const handleAddManual = async () => {
+    if (!user) {
+      setMessage("⚠️ You must be logged in to add a manual session.")
+      return
+    }
+
+    const start = parseDateInput(manualCheckIn)
+    const end = parseDateInput(manualCheckOut)
+    const startMs = start.getTime()
+    const endMs = end.getTime()
+
+    if (isNaN(startMs) || isNaN(endMs)) {
+      setMessage("⚠️ Invalid dates. Use a valid format (e.g. 2025-09-23T18:30 or 2025-09-23 18:30).")
+      return
+    }
+    if (endMs <= startMs) {
+      setMessage("⚠️ The checkout must be after the checkin.")
+      return
+    }
+
+    const totalHours = (endMs - startMs) / (1000 * 60 * 60)
+
+    const { error } = await supabase
+      .from("work_sessions")
+      .insert([
+        {
+          check_in: start.toISOString(),
+          check_out: end.toISOString(),
+          total_hours: totalHours,
+          user_id: user.id,
+        },
+      ])
+
+    if (error) {
+      console.error("Error adding manual session:", error)
+      setMessage(`❌ Error: ${error.message}`)
+      return
+    }
+
+    setMessage("✅ Manual session saved successfully!")
+    setManualCheckIn("")
+    setManualCheckOut("")
+    fetchWorkSessions()
   }
 
   return (
@@ -248,12 +406,47 @@ export default function TestPage() {
               <div>
                 <p className="text-gray-600 dark:text-gray-300">Horas Totales</p>
                 <p className="text-2xl font-bold">
-                  {workSessions.reduce((total, s) => total + (s.total_hours || 0), 0).toFixed(2)} horas
+                  {workSessions.reduce((total, s) => total + computeSessionHours(s), 0).toFixed(2)} horas
                 </p>
               </div>
               <div>
                 <p className="text-gray-600 dark:text-gray-300">Sesiones Registradas</p>
                 <p className="text-2xl font-bold text-right">{workSessions.length}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Agregar sesión manual */}
+          <div className="mb-8 p-4 border rounded-lg bg-white dark:bg-gray-900">
+            <h3 className="font-semibold mb-3">Agregar sesión manual</h3>
+            <div className="grid sm:grid-cols-3 gap-3 items-end">
+              <div>
+                <label className="block text-sm mb-1">Check-in</label>
+                <input
+                  type="datetime-local"
+                  className="border px-2 py-1 rounded w-full"
+                  step={60}
+                  min="2000-01-01T00:00"
+                  max={toLocalInputValue(new Date().toISOString())}
+                  value={manualCheckIn}
+                  onChange={(e) => setManualCheckIn(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm mb-1">Check-out</label>
+                <input
+                  type="datetime-local"
+                  className="border px-2 py-1 rounded w-full"
+                  step={60}
+                  min={manualCheckIn || "2000-01-01T00:00"}
+                  max={toLocalInputValue(new Date().toISOString())}
+                  value={manualCheckOut}
+                  onChange={(e) => setManualCheckOut(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleAddManual} className="bg-blue-600 text-white px-4 py-2 rounded">Guardar</button>
+                <button onClick={() => { setManualCheckIn(""); setManualCheckOut("") }} className="px-4 py-2 rounded border">Limpiar</button>
               </div>
             </div>
           </div>
@@ -299,32 +492,86 @@ export default function TestPage() {
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                          {formatDateTime(session.check_in)}
+                          {editingId === session.id ? (
+                            <input
+                              type="datetime-local"
+                              className="border px-2 py-1 rounded"
+                              step={60}
+                              min="2000-01-01T00:00"
+                              max={toLocalInputValue(new Date().toISOString())}
+                              value={editCheckIn}
+                              onChange={(e) => setEditCheckIn(e.target.value)}
+                            />
+                          ) : (
+                            formatDateTime(session.check_in)
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                          {session.check_out ? formatDateTime(session.check_out) : 'En progreso'}
+                          {editingId === session.id ? (
+                            <input
+                              type="datetime-local"
+                              className="border px-2 py-1 rounded"
+                              step={60}
+                              min={editCheckIn || "2000-01-01T00:00"}
+                              max={toLocalInputValue(new Date().toISOString())}
+                              value={editCheckOut}
+                              onChange={(e) => setEditCheckOut(e.target.value)}
+                            />
+                          ) : (
+                            session.check_out ? formatDateTime(session.check_out) : 'En progreso'
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                          {session.total_hours != null ? `${session.total_hours.toFixed(2)}h` : 'Calculando...'}
+                          {(() => {
+                            // Si total_hours viene nulo pero hay check_out, calculamos al vuelo para mostrarlo
+                            if (session.total_hours != null) {
+                              return `${session.total_hours.toFixed(2)}h`
+                            }
+                            if (session.check_out) {
+                              const start = new Date(session.check_in).getTime()
+                              const end = new Date(session.check_out).getTime()
+                              if (!isNaN(start) && !isNaN(end) && end >= start) {
+                                const hours = (end - start) / (1000 * 60 * 60)
+                                return `${hours.toFixed(2)}h`
+                              }
+                            }
+                            return 'Calculando...'
+                          })()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap flex gap-2">
-                          <button
-                            onClick={() => handleDelete(session.id.toString())}
-                            className="text-red-500 hover:text-red-700 flex items-center gap-1"
-                          >
-                            <Trash2 size={16} /> Delete
-                          </button>
-                          {!isActive && (
-                            <button
-                              onClick={() => {
-                                const newCheckIn = prompt("Nueva hora de check-in:", session.check_in)
-                                const newCheckOut = prompt("Nueva hora de check-out:", session.check_out || '')
-                                if (newCheckIn && newCheckOut) handleUpdate(session.id.toString(), newCheckIn, newCheckOut)
-                              }}
-                              className="text-blue-500 hover:text-blue-700 flex items-center gap-1"
-                            >
-                              <Edit2 size={16} /> Edit
-                            </button>
+                          {editingId === session.id ? (
+                            <>
+                              <button
+                                onClick={() => handleEditSave(session.id)}
+                                className={`flex items-center gap-1 ${savingId === session.id ? 'opacity-60 pointer-events-none' : 'text-green-600 hover:text-green-800'}`}
+                                disabled={savingId === session.id}
+                              >
+                                <Check size={16} /> Save
+                              </button>
+                              <button
+                                onClick={handleEditCancel}
+                                className="text-gray-600 hover:text-gray-800 flex items-center gap-1"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleDelete(session.id.toString())}
+                                className="text-red-500 hover:text-red-700 flex items-center gap-1"
+                              >
+                                <Trash2 size={16} /> Delete
+                              </button>
+                              {!isActive && (
+                                <button
+                                  onClick={() => handleEditStart(session)}
+                                  className="text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                                >
+                                  <Edit2 size={16} /> Edit
+                                </button>
+                              )}
+                            </>
                           )}
                         </td>
                       </tr>
