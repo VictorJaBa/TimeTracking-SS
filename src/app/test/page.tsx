@@ -3,10 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import AuthForm from "@/components/AuthForm"
 
-import { Button } from "@/components/ui/button"
-import { useTheme } from "next-themes"
 import type { User } from "@supabase/supabase-js"
-import { Sun, Moon, Clock, Check, Trash2, Edit2 } from "lucide-react"
+import { Clock, Trash2, Edit2 } from "lucide-react"
+import ThemeToggle from "@/components/ThemeToggle"
 
 // 🔹 Tipo para las sesiones
 interface WorkSession {
@@ -15,23 +14,6 @@ interface WorkSession {
   check_out: string | null
   total_hours: number | null
   user_id: string
-}
-
-// 🔹 Theme toggle component (named export)
-export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
-
-  const isLight = theme === "light"
-
-  return (
-    <Button
-      variant="outline"
-      onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-      className="flex items-center gap-2"
-    >
-      {isLight ? <Moon size={18} /> : <Sun size={18} />}
-    </Button>
-  )
 }
 
 export default function TestPage() {
@@ -223,14 +205,13 @@ export default function TestPage() {
         <div className="flex items-center space-x-2">
           <ThemeToggle />
           <button
-            onClick={async () => { await supabase.auth.signOut(); window.location.href = "/" }}
+            onClick={handleLogout}
             className="bg-red-500 text-white px-3 py-1 rounded"
           >
             Logout
           </button>
         </div>
       </div>
-
 
       {!user ? (
         <AuthForm />
@@ -362,4 +343,4 @@ export default function TestPage() {
       )}
     </div>
   )
-}1
+}

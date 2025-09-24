@@ -1,29 +1,13 @@
 "use client"
+
 import { useEffect, useState, useRef, useCallback } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import AuthForm from "@/components/AuthForm"
-import { Clock, Check } from "lucide-react"
-import { useTheme } from "next-themes"
+import { Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Sun, Moon } from "lucide-react"
 import { User } from "@supabase/supabase-js"
+import ThemeToggle from "@/components/ThemeToggle"
 
-// 🔹 Theme toggle component (named export)
-export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
-
-  const isLight = theme === "light"
-
-  return (
-    <Button
-      variant="outline"
-      onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-      className="flex items-center gap-2"
-    >
-      {isLight ? <Moon size={18} /> : <Sun size={18} />}
-    </Button>
-  )
-}
 
 interface WorkSession {
   id: number
