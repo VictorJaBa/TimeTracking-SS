@@ -72,6 +72,9 @@ export default function TestPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editCheckIn, setEditCheckIn] = useState<string>("")
   const [editCheckOut, setEditCheckOut] = useState<string>("")
+  const [savingId, setSavingId] = useState<number | null>(null)
+  const [manualCheckIn, setManualCheckIn] = useState<string>("")
+  const [manualCheckOut, setManualCheckOut] = useState<string>("")
 
   // Inline edit handlers (must live inside component to access state setters)
   const handleEditStart = (s: WorkSession) => {
@@ -88,7 +91,26 @@ export default function TestPage() {
 
   const handleEditSave = (id: number) => {
     // Los inputs datetime-local retornan en hora local sin zona; parseDateInput los acepta
+    // Optimistic UI: actualizamos inmediatamente la fila mientras guardamos
+    const start = parseDateInput(editCheckIn)
+    const end = parseDateInput(editCheckOut)
+    const startMs = start.getTime()
+    const endMs = end.getTime()
+    if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
+      setMessage("⚠️ Invalid dates. Please review.")
+      return
+    }
+    const optimisticHours = (endMs - startMs) / (1000 * 60 * 60)
+    setWorkSessions(prev => prev.map(s => s.id === id ? ({
+      ...s,
+      check_in: start.toISOString(),
+      check_out: end.toISOString(),
+      total_hours: optimisticHours,
+    }) : s))
+    setSavingId(id)
+    setEditingId(null)
     handleUpdate(id.toString(), editCheckIn, editCheckOut)
+      .finally(() => setSavingId(null))
   }
 
   // 🔹 Fetch work_sessions
@@ -348,6 +370,41 @@ export default function TestPage() {
             </div>
           </div>
 
+          {/* Agregar sesión manual */}
+          <div className="mb-8 p-4 border rounded-lg bg-white dark:bg-gray-900">
+            <h3 className="font-semibold mb-3">Agregar sesión manual</h3>
+            <div className="grid sm:grid-cols-3 gap-3 items-end">
+              <div>
+                <label className="block text-sm mb-1">Check-in</label>
+                <input
+                  type="datetime-local"
+                  className="border px-2 py-1 rounded w-full"
+                  step={60}
+                  min="2000-01-01T00:00"
+                  max={toLocalInputValue(new Date().toISOString())}
+                  value={manualCheckIn}
+                  onChange={(e) => setManualCheckIn(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm mb-1">Check-out</label>
+                <input
+                  type="datetime-local"
+                  className="border px-2 py-1 rounded w-full"
+                  step={60}
+                  min={manualCheckIn || "2000-01-01T00:00"}
+                  max={toLocalInputValue(new Date().toISOString())}
+                  value={manualCheckOut}
+                  onChange={(e) => setManualCheckOut(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleAddManual} className="bg-blue-600 text-white px-4 py-2 rounded">Guardar</button>
+                <button onClick={() => { setManualCheckIn(""); setManualCheckOut("") }} className="px-4 py-2 rounded border">Limpiar</button>
+              </div>
+            </div>
+          </div>
+
           {/* Lista de sesiones con CRUD */}
           <div className="border rounded-lg overflow-hidden">
             <h2 className="text-xl font-bold p-4 bg-gray-50 dark:bg-gray-800 border-b">Historial de Sesiones</h2>
@@ -393,6 +450,9 @@ export default function TestPage() {
                             <input
                               type="datetime-local"
                               className="border px-2 py-1 rounded"
+                              step={60}
+                              min="2000-01-01T00:00"
+                              max={toLocalInputValue(new Date().toISOString())}
                               value={editCheckIn}
                               onChange={(e) => setEditCheckIn(e.target.value)}
                             />
@@ -405,6 +465,9 @@ export default function TestPage() {
                             <input
                               type="datetime-local"
                               className="border px-2 py-1 rounded"
+                              step={60}
+                              min={editCheckIn || "2000-01-01T00:00"}
+                              max={toLocalInputValue(new Date().toISOString())}
                               value={editCheckOut}
                               onChange={(e) => setEditCheckOut(e.target.value)}
                             />
@@ -434,7 +497,8 @@ export default function TestPage() {
                             <>
                               <button
                                 onClick={() => handleEditSave(session.id)}
-                                className="text-green-600 hover:text-green-800 flex items-center gap-1"
+                                className={`flex items-center gap-1 ${savingId === session.id ? 'opacity-60 pointer-events-none' : 'text-green-600 hover:text-green-800'}`}
+                                disabled={savingId === session.id}
                               >
                                 <Check size={16} /> Save
                               </button>
