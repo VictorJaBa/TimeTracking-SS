@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabaseClient"
 import AuthForm from "@/components/AuthForm"
 
 import type { User } from "@supabase/supabase-js"
-import { Clock, Trash2, Edit2 } from "lucide-react"
+import { Clock, Trash2, Edit2, Check } from "lucide-react"
 import ThemeToggle from "@/components/ThemeToggle"
 
 // 🔹 Tipo para las sesiones
@@ -29,7 +29,35 @@ function parseDateInput(input: string): Date {
     const d2 = new Date(candidate + ":00")
     if (!isNaN(d2.getTime())) return d2
   }
+
   return new Date(NaN)
+}
+
+// Convierte ISO a valor para input datetime-local (YYYY-MM-DDTHH:mm)
+function toLocalInputValue(iso: string | null): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const yyyy = d.getFullYear()
+  const mm = pad(d.getMonth() + 1)
+  const dd = pad(d.getDate())
+  const hh = pad(d.getHours())
+  const mi = pad(d.getMinutes())
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
+}
+
+// Horas de una sesión (usa total_hours si existe; si no, calcula por fechas)
+function computeSessionHours(s: WorkSession): number {
+  if (s.total_hours != null) return s.total_hours
+  if (s.check_out) {
+    const start = new Date(s.check_in).getTime()
+    const end = new Date(s.check_out).getTime()
+    if (!isNaN(start) && !isNaN(end) && end >= start) {
+      return (end - start) / (1000 * 60 * 60)
+    }
+  }
+  return 0
 }
 
 export default function TestPage() {
@@ -41,6 +69,27 @@ export default function TestPage() {
   const [endTime, setEndTime] = useState("")
   const [message, setMessage] = useState("")
   const [user, setUser] = useState<User | null>(null) // 👈 Guarda el usuario actual
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editCheckIn, setEditCheckIn] = useState<string>("")
+  const [editCheckOut, setEditCheckOut] = useState<string>("")
+
+  // Inline edit handlers (must live inside component to access state setters)
+  const handleEditStart = (s: WorkSession) => {
+    setEditingId(s.id)
+    setEditCheckIn(toLocalInputValue(s.check_in))
+    setEditCheckOut(toLocalInputValue(s.check_out))
+  }
+
+  const handleEditCancel = () => {
+    setEditingId(null)
+    setEditCheckIn("")
+    setEditCheckOut("")
+  }
+
+  const handleEditSave = (id: number) => {
+    // Los inputs datetime-local retornan en hora local sin zona; parseDateInput los acepta
+    handleUpdate(id.toString(), editCheckIn, editCheckOut)
+  }
 
   // 🔹 Fetch work_sessions
   const fetchWorkSessions = useCallback(async () => {
@@ -220,6 +269,9 @@ export default function TestPage() {
     } else {
       setMessage("✅ Session updated successfully!")
       fetchWorkSessions()
+      setEditingId(null)
+      setEditCheckIn("")
+      setEditCheckOut("")
     }
   }
 
@@ -286,7 +338,7 @@ export default function TestPage() {
               <div>
                 <p className="text-gray-600 dark:text-gray-300">Horas Totales</p>
                 <p className="text-2xl font-bold">
-                  {workSessions.reduce((total, s) => total + (s.total_hours || 0), 0).toFixed(2)} horas
+                  {workSessions.reduce((total, s) => total + computeSessionHours(s), 0).toFixed(2)} horas
                 </p>
               </div>
               <div>
@@ -337,10 +389,28 @@ export default function TestPage() {
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                          {formatDateTime(session.check_in)}
+                          {editingId === session.id ? (
+                            <input
+                              type="datetime-local"
+                              className="border px-2 py-1 rounded"
+                              value={editCheckIn}
+                              onChange={(e) => setEditCheckIn(e.target.value)}
+                            />
+                          ) : (
+                            formatDateTime(session.check_in)
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                          {session.check_out ? formatDateTime(session.check_out) : 'En progreso'}
+                          {editingId === session.id ? (
+                            <input
+                              type="datetime-local"
+                              className="border px-2 py-1 rounded"
+                              value={editCheckOut}
+                              onChange={(e) => setEditCheckOut(e.target.value)}
+                            />
+                          ) : (
+                            session.check_out ? formatDateTime(session.check_out) : 'En progreso'
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
                           {(() => {
@@ -360,23 +430,38 @@ export default function TestPage() {
                           })()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap flex gap-2">
-                          <button
-                            onClick={() => handleDelete(session.id.toString())}
-                            className="text-red-500 hover:text-red-700 flex items-center gap-1"
-                          >
-                            <Trash2 size={16} /> Delete
-                          </button>
-                          {!isActive && (
-                            <button
-                              onClick={() => {
-                                const newCheckIn = prompt("Nueva hora de check-in:", session.check_in)
-                                const newCheckOut = prompt("Nueva hora de check-out:", session.check_out || '')
-                                if (newCheckIn && newCheckOut) handleUpdate(session.id.toString(), newCheckIn, newCheckOut)
-                              }}
-                              className="text-blue-500 hover:text-blue-700 flex items-center gap-1"
-                            >
-                              <Edit2 size={16} /> Edit
-                            </button>
+                          {editingId === session.id ? (
+                            <>
+                              <button
+                                onClick={() => handleEditSave(session.id)}
+                                className="text-green-600 hover:text-green-800 flex items-center gap-1"
+                              >
+                                <Check size={16} /> Save
+                              </button>
+                              <button
+                                onClick={handleEditCancel}
+                                className="text-gray-600 hover:text-gray-800 flex items-center gap-1"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleDelete(session.id.toString())}
+                                className="text-red-500 hover:text-red-700 flex items-center gap-1"
+                              >
+                                <Trash2 size={16} /> Delete
+                              </button>
+                              {!isActive && (
+                                <button
+                                  onClick={() => handleEditStart(session)}
+                                  className="text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                                >
+                                  <Edit2 size={16} /> Edit
+                                </button>
+                              )}
+                            </>
                           )}
                         </td>
                       </tr>
