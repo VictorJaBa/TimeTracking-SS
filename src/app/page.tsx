@@ -176,7 +176,7 @@ export default function TestPage() {
   }
 
   const handleUpdate = async (id: string, newCheckIn: string, newCheckOut: string) => {
-    const totalHours = (new Date(newCheckOut).getTime() - new Date(newCheckIn).getTime() / (1000 * 60 * 60))
+    const totalHours = (new Date(newCheckOut).getTime() - new Date(newCheckIn).getTime()) / (1000 * 60 * 60)
     const { error } = await supabase
       .from("work_sessions")
       .update({ check_in: newCheckIn, check_out: newCheckOut, total_hours: totalHours })
@@ -305,7 +305,7 @@ export default function TestPage() {
                           {session.check_out ? formatDateTime(session.check_out) : 'En progreso'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                          {session.total_hours ? `${session.total_hours.toFixed(2)}h` : 'Calculando...'}
+                          {session.total_hours != null ? `${session.total_hours.toFixed(2)}h` : 'Calculando...'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap flex gap-2">
                           <button
