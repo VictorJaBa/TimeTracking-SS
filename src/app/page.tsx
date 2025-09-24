@@ -16,6 +16,22 @@ interface WorkSession {
   user_id: string
 }
 
+// Normaliza entradas de fecha comunes a un Date válido
+function parseDateInput(input: string): Date {
+  const s = (input || "").trim()
+  if (!s) return new Date(NaN)
+  // Reemplazar espacio por 'T' si viene en formato "YYYY-MM-DD HH:mm[:ss]"
+  const candidate = s.includes("T") ? s : s.replace(" ", "T")
+  const d = new Date(candidate)
+  if (!isNaN(d.getTime())) return d
+  // Fallback: intentar agregar ":00" para segundos si faltan
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(candidate)) {
+    const d2 = new Date(candidate + ":00")
+    if (!isNaN(d2.getTime())) return d2
+  }
+  return new Date(NaN)
+}
+
 export default function TestPage() {
   const [workSessions, setWorkSessions] = useState<WorkSession[]>([])
   const [activeSession, setActiveSession] = useState<WorkSession | null>(null)
@@ -37,6 +53,8 @@ export default function TestPage() {
     // .limit(5) // 👈 limitar testing a 5
     if (error) console.error("Error fetching work_sessions:", error)
     else {
+      // Debug: inspeccionar tipos devueltos por Supabase
+      console.debug("work_sessions fetched:", data)
       setWorkSessions((data || []) as WorkSession[])
       // 👉 Si hay sesiones sin check_out, la tomamos como activa
       const ongoing = data?.find(s => !s.check_out)
@@ -176,13 +194,33 @@ export default function TestPage() {
   }
 
   const handleUpdate = async (id: string, newCheckIn: string, newCheckOut: string) => {
-    const totalHours = (new Date(newCheckOut).getTime() - new Date(newCheckIn).getTime()) / (1000 * 60 * 60)
+    const start = parseDateInput(newCheckIn)
+    const end = parseDateInput(newCheckOut)
+    const startMs = start.getTime()
+    const endMs = end.getTime()
+
+    // Validaciones básicas para evitar NaN en la BD
+    if (isNaN(startMs) || isNaN(endMs)) {
+      setMessage("⚠️ Invalid dates. Use a valid format (e.g. 2025-09-23T18:30:00 or 2025-09-23 18:30:00).")
+      return
+    }
+    if (endMs <= startMs) {
+      setMessage("⚠️ The checkout must be after the checkin.")
+      return
+    }
+
+    const totalHours = (endMs - startMs) / (1000 * 60 * 60)
     const { error } = await supabase
       .from("work_sessions")
-      .update({ check_in: newCheckIn, check_out: newCheckOut, total_hours: totalHours })
+      .update({ check_in: start.toISOString(), check_out: end.toISOString(), total_hours: totalHours })
       .eq("id", id)
-    if (error) console.error("Error updating session:", error)
-    else fetchWorkSessions()
+    if (error) {
+      console.error("Error updating session:", error)
+      setMessage(`❌ Error updating session: ${error.message}`)
+    } else {
+      setMessage("✅ Session updated successfully!")
+      fetchWorkSessions()
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -305,7 +343,21 @@ export default function TestPage() {
                           {session.check_out ? formatDateTime(session.check_out) : 'En progreso'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                          {session.total_hours != null ? `${session.total_hours.toFixed(2)}h` : 'Calculando...'}
+                          {(() => {
+                            // Si total_hours viene nulo pero hay check_out, calculamos al vuelo para mostrarlo
+                            if (session.total_hours != null) {
+                              return `${session.total_hours.toFixed(2)}h`
+                            }
+                            if (session.check_out) {
+                              const start = new Date(session.check_in).getTime()
+                              const end = new Date(session.check_out).getTime()
+                              if (!isNaN(start) && !isNaN(end) && end >= start) {
+                                const hours = (end - start) / (1000 * 60 * 60)
+                                return `${hours.toFixed(2)}h`
+                              }
+                            }
+                            return 'Calculando...'
+                          })()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap flex gap-2">
                           <button
